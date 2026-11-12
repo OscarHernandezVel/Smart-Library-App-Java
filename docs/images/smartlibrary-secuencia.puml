@@ -1,0 +1,67 @@
+@startuml smartlibrary-secuencia
+title POST /api/prestamos: préstamo exitoso y libro no disponible
+
+autonumber
+skinparam shadowing false
+skinparam sequenceMessageAlign left
+skinparam responseMessageBelowArrow true
+skinparam maxMessageSize 220
+
+actor Usuario
+participant "PrestamoController" as C <<Controller>>
+participant "PrestamoService" as S <<Service>>
+participant "EstudianteService" as ES <<Service>>
+participant "LibroService" as LS <<Service>>
+participant "EstudianteRepository" as ER <<interface>>
+participant "LibroRepository" as LR <<interface>>
+participant "PrestamoRepository" as PR <<interface>>
+participant "libro : Libro" as L <<Entidad>>
+participant "prestamo : Prestamo" as P <<Entidad>>
+
+Usuario -> C : POST /api/prestamos\nregistrar(request: PrestamoRequest)
+activate C
+C -> S : registrarPrestamo(estudianteId, libroId)
+activate S
+note right of S : Una sola transacción (R4)
+
+S -> ES : buscarPorId(estudianteId)
+activate ES
+ES -> ER : buscarPorId(id)
+ER --> ES : Optional<Estudiante>
+ES --> S : Estudiante
+deactivate ES
+S -> LS : buscarPorId(libroId)
+activate LS
+LS -> LR : buscarPorId(id)
+LR --> LS : Optional<Libro>
+LS --> S : Libro
+deactivate LS
+
+alt Camino 1: el libro está disponible (éxito)
+  S -> L : marcarPrestado()
+  note right of L : R1 se cumple.\nR3: el libro deja de estar disponible.
+  create P
+  S -> P : <<create>>\nPrestamo(fecha, estudiante, libro)
+  note right of P : R2: registra estudiante,\nlibro y fecha.
+  S -> PR : guardar(prestamo)
+  PR --> S : Prestamo
+  note right of S : El libro es una entidad gestionada: su cambio\nse confirma con el préstamo al cerrar la transacción.
+  S --> C : Prestamo
+  deactivate S
+  C -> C : PrestamoResponse.desde(prestamo)
+  C --> Usuario : 201 Created + PrestamoResponse\n(ResponseEntity<PrestamoResponse>)
+else Camino 2: el libro no está disponible (R1)
+  S -> L : marcarPrestado()
+  L --> S : <<throws>> LibroNoDisponibleException
+  note right of S : Rollback. No se llama a guardar(...):\nno se crea préstamo ni cambia el libro (R4).
+  S --> C : <<throws>> LibroNoDisponibleException
+  deactivate S
+  C --> Usuario : 409 Conflict\n(ResponseEntity)
+end
+deactivate C
+
+legend bottom
+  Cada mensaje corresponde a una operación del diagrama de clases (smartlibrary-clases.puml).
+  Los retornos punteados muestran el valor devuelto o la excepción lanzada.
+endlegend
+@enduml
