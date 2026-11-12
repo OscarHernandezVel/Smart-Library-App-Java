@@ -1,0 +1,163 @@
+@startuml smartlibrary-clases
+title SmartLibrary: «Registrar préstamo» en capas Controller – Service – Repository
+
+top to bottom direction
+hide empty members
+skinparam classAttributeIconSize 0
+skinparam shadowing false
+skinparam packageStyle rectangle
+skinparam nodesep 50
+skinparam ranksep 70
+
+package "Presentación" {
+  class PrestamoController <<Controller>> {
+    +registrar(request: PrestamoRequest): ResponseEntity<PrestamoResponse>
+    +consultar(estudianteId: Long, soloActivos: boolean): List<PrestamoResponse>
+  }
+  class PrestamoRequest <<DTO>> {
+    -estudianteId: Long
+    -libroId: Long
+    +getEstudianteId(): Long
+    +setEstudianteId(estudianteId: Long): void
+    +getLibroId(): Long
+    +setLibroId(libroId: Long): void
+  }
+  class PrestamoResponse <<DTO>> {
+    -id: Long
+    -estudianteId: Long
+    -libroId: Long
+    -fechaPrestamo: LocalDate
+    +getId(): Long
+    +setId(id: Long): void
+    +getEstudianteId(): Long
+    +setEstudianteId(estudianteId: Long): void
+    +getLibroId(): Long
+    +setLibroId(libroId: Long): void
+    +getFechaPrestamo(): LocalDate
+    +setFechaPrestamo(fechaPrestamo: LocalDate): void
+    {static} +desde(prestamo: Prestamo): PrestamoResponse
+  }
+}
+
+package "Negocio" {
+  class PrestamoService <<Service>> {
+    +registrarPrestamo(estudianteId: Long, libroId: Long): Prestamo
+    +consultarPrestamos(estudianteId: Long, soloActivos: boolean): List<Prestamo>
+  }
+  class EstudianteService <<Service>> {
+    +buscarPorId(id: Long): Estudiante
+  }
+  class LibroService <<Service>> {
+    +buscarPorId(id: Long): Libro
+  }
+}
+
+package "Acceso a datos" {
+  interface EstudianteRepository <<interface>> {
+    +buscarPorId(id: Long): Optional<Estudiante>
+  }
+  interface LibroRepository <<interface>> {
+    +buscarPorId(id: Long): Optional<Libro>
+    +guardar(libro: Libro): Libro
+  }
+  interface PrestamoRepository <<interface>> {
+    +guardar(prestamo: Prestamo): Prestamo
+    +buscarPorEstudiante(estudianteId: Long): List<Prestamo>
+    +buscarActivos(): List<Prestamo>
+  }
+}
+
+package "Dominio" {
+  class Estudiante <<Entidad>> {
+    -id: Long
+    -nombre: String
+    -correo: String
+    +Estudiante(id: Long, nombre: String, correo: String)
+    +getId(): Long
+    +setId(id: Long): void
+    +getNombre(): String
+    +setNombre(nombre: String): void
+    +getCorreo(): String
+    +setCorreo(correo: String): void
+  }
+  class Libro <<Entidad>> {
+    -id: Long
+    -titulo: String
+    -disponible: boolean
+    +Libro(id: Long, titulo: String, disponible: boolean)
+    +getId(): Long
+    +setId(id: Long): void
+    +getTitulo(): String
+    +setTitulo(titulo: String): void
+    +isDisponible(): boolean
+    +setDisponible(disponible: boolean): void
+    +marcarPrestado(): void
+  }
+  class Prestamo <<Entidad>> {
+    -id: Long
+    -fechaPrestamo: LocalDate
+    -fechaDevolucion: LocalDate [0..1]
+    +Prestamo(fecha: LocalDate, estudiante: Estudiante, libro: Libro)
+    +estaActivo(): boolean
+    +getId(): Long
+    +setId(id: Long): void
+    +getFechaPrestamo(): LocalDate
+    +setFechaPrestamo(fechaPrestamo: LocalDate): void
+    +getFechaDevolucion(): LocalDate
+    +setFechaDevolucion(fechaDevolucion: LocalDate): void
+    +getEstudiante(): Estudiante
+    +setEstudiante(estudiante: Estudiante): void
+    +getLibro(): Libro
+    +setLibro(libro: Libro): void
+  }
+}
+
+' ---------- Relaciones del dominio: agregación (sin línea de asociación simple) ----------
+Estudiante "1" o-- "0..*" Prestamo : a nombre de
+Libro "1" o-- "0..*" Prestamo : recae sobre
+
+' ---------- Dependencias entre capas (Controller -> Service -> Repository) ----------
+PrestamoController .down.> PrestamoService : delega en
+PrestamoService .down.> EstudianteService
+PrestamoService .down.> LibroService
+PrestamoService .down.> PrestamoRepository
+EstudianteService .down.> EstudianteRepository
+LibroService .down.> LibroRepository
+
+' ---------- Dependencias (uso puntual, sin atributo) ----------
+PrestamoController .left.> PrestamoRequest : recibe
+PrestamoController .right.> PrestamoResponse : devuelve
+PrestamoResponse .down.> Prestamo : mapea
+EstudianteRepository .left.> Estudiante
+PrestamoRepository .left.> Prestamo
+LibroRepository .left.> Libro
+
+' ---------- Ayudas de layout (no son relaciones UML) ----------
+EstudianteRepository -[hidden]right- PrestamoRepository
+PrestamoRepository -[hidden]right- LibroRepository
+Estudiante -[hidden]right- Libro
+
+note right of Libro
+  R1 y R3: marcarPrestado() lanza
+  LibroNoDisponibleException si el libro
+  no está disponible; si lo está, lo deja
+  como no disponible.
+end note
+
+note right of Prestamo
+  R2: el constructor exige fecha, estudiante y libro.
+  R5: {como máximo un Prestamo con
+  fechaDevolucion nula por Libro}
+end note
+
+note bottom of PrestamoService
+  Una sola transacción (R4): si falla cualquier paso
+  no se guarda el préstamo ni se cambia el libro.
+end note
+
+legend bottom
+  Rombo vacío = agregación (los extremos tienen ciclo de vida propio). No se usa la línea de asociación simple.
+  Línea punteada con flecha abierta = dependencia (uso puntual, sin atributo).
+  Hay un servicio por clase del dominio. Solo hay interfaz donde existe una frontera de persistencia.
+endlegend
+@enduml
